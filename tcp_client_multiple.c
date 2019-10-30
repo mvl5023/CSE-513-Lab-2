@@ -8,7 +8,10 @@
 #include <unistd.h>
 #include <errno.h>
 #include <stdbool.h>
-	
+
+// Servers assigned to port range 5000-9999
+// Clients assigned to port range 10000+
+#define PORT 5000
 #define BUFSIZE 1024
 
 /*---------------------------------------------------------------
@@ -124,7 +127,7 @@ void connect_request(int *sockfd, struct sockaddr_in *server_addr)
 		exit(1);
 	}
 	server_addr->sin_family = AF_INET;
-	server_addr->sin_port = htons(4950);
+	server_addr->sin_port = htons(PORT);
 	server_addr->sin_addr.s_addr = inet_addr("127.0.0.1");
 	memset(server_addr->sin_zero, '.', sizeof server_addr->sin_zero);
 	

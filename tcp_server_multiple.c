@@ -9,8 +9,10 @@
 #include <netdb.h>
 #include <dirent.h>
 #include <sys/stat.h>
-	
-#define PORT 4950
+
+// Servers assigned to port range 5000-9999
+// Clients assigned to port range 10000+
+#define PORT 5000
 #define BUFSIZE 1024
 
 long int findSize(char file_name[]) 
@@ -55,52 +57,6 @@ void send_to_all(int j, int i, int sockfd, int nbytes_recvd, char *recv_buf, fd_
 	send(i,recv_buf,nbytes_recvd,0);
 	bzero(recv_buf, sizeof(recv_buf));
 }
-void ListingFiles(int i){
-	//dirent.h stuff
-	DIR *d;
-	struct dirent *dir;
-	d=opendir("./FILES");
-	long int size=0;
-	//sys/stat.h stuff
-	struct stat st;
-
-	uint16_t file_count;
-	file_count = 0x0;
-	//filesize is length
-	uint16_t filesize;
-
-	bzero(dir->d_name, sizeof(dir->d_name));
-	if (d)
-    {
-        while ((dir = readdir(d)) != NULL)
-        {
-			
-			if (dir->d_name[0] != '.'){
-            printf("%s", dir->d_name);
-			int length = strlen(dir->d_name);
-			send(i,dir->d_name,length,0);
-			//printf("Length: %u", (unsigned int)filesize);
-			//printf(" %d", stat(dir->d_name, &st));
-			//printf("\n");
-			//find size!
-			//char dest[256] = {"./FILES/"};
-			//strcat(dest,dir->d_name);
-			//printf("fuck");
-			//long int res = findSize(dest); 
-    		//if (res != -1) 
-        		//printf("Size of the file is %ld bytes \n", res); 
-    		//file_count++;
-			//}
-			//bzero(dir->d_name, sizeof(dir->d_name));
-        }
-        closedir(d);
-    }
-	//send file count
-	//send(i,file_count,nbytes,0);
-	//show file_count
-	//show filename then length
-
-}		
 
 void send_recv(int i, fd_set *master, int sockfd, int fdmax)
 {
@@ -121,7 +77,6 @@ void send_recv(int i, fd_set *master, int sockfd, int fdmax)
 		printf("Client sent: %s", recv_buf);
 		bzero(send_buf, sizeof(send_buf));
 		if (strcmp(recv_buf , "filelist\n") == 0) {
-			ListingFiles(i);
 			//send(sockfd, send_buf,sizeof(send_buf));
 			//send(i , send_buf , strlen(send_buf) , 0);
 
@@ -152,34 +107,50 @@ void connection_accept(fd_set *master, int *fdmax, int sockfd, struct sockaddr_i
 	}
 }
 	
-void connect_request(int *sockfd, struct sockaddr_in *my_addr)
+void connect_request(int &sockfd, struct sockaddr_in &my_addr)
 {
 	int yes = 1;
+	int portNew = PORT;
 		
-	if ((*sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+	if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
 		perror("Socket");
 		exit(1);
 	}
 		
-	my_addr->sin_family = AF_INET;
-	my_addr->sin_port = htons(4950);
-	my_addr->sin_addr.s_addr = INADDR_ANY;
-	memset(my_addr->sin_zero, '.', sizeof my_addr->sin_zero);
+	my_addr.sin_family = AF_INET;
+	my_addr.sin_port = htons(PORT);
+	my_addr.sin_addr.s_addr = INADDR_ANY;
+	memset(my_addr.sin_zero, '.', sizeof my_addr.sin_zero);
 		
-	if (setsockopt(*sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
+	if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
 		perror("setsockopt");
 		exit(1);
 	}
-		
-	if (bind(*sockfd, (struct sockaddr *)my_addr, sizeof(struct sockaddr)) == -1) {
-		perror("Unable to bind");
-		exit(1);
+	
+	// Server binds to first free port >=5000
+	int bindNum = bind(sockfd, (struct sockaddr *)&my_addr, sizeof(my_addr));
+	printf("Bind return value = %d \n", bindNum);
+	if (bindNum < 0) 
+	{ 
+		while((bindNum < 0) && (portNew < 9999))
+		{
+			printf("Unable to bind to port %d\n", portNew);
+			portNew = portNew + 1;
+			my_addr.sin_port = htons(portNew);
+			printf("Attempting to bind to port %d \n", portNew);
+			bindNum = bind(sockfd, (struct sockaddr *)&my_addr, sizeof(my_addr));
+			printf("Bind return value = %d \n", bindNum);
+		}
 	}
-	if (listen(*sockfd, 10) == -1) {
+	if (bindNum < 0)
+		printf("Failed to find free port - maximum number of servers reached.\n");
+	else
+		printf("Successfully bound on port %d\n", portNew);
+	
+	if (listen(sockfd, 10) == -1) {
 		perror("listen");
 		exit(1);
 	}
-	printf("\nTCPServer Waiting for client on port 4950\n");
 	fflush(stdout);
 }
 int main()
@@ -192,7 +163,7 @@ int main()
 	
 	FD_ZERO(&master);
 	FD_ZERO(&read_fds);
-	connect_request(&sockfd, &my_addr);
+	connect_request(sockfd, my_addr);
 	FD_SET(sockfd, &master);
 	
 	fdmax = sockfd;
