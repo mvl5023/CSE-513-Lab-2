@@ -35,6 +35,7 @@
 #define BUFSIZE 1024
 #define COLUMNS 4
 #define ROWS 32
+#define NSERVS 50
 
 //32 clients to a server.  We won't be simulating that much. I want casuality working
 //format for each row:
@@ -212,7 +213,7 @@ void send_recv(int i, fd_set *master, int sockfd, int fdmax)
 		close(i);
 		FD_CLR(i, master);
 	}else {
-		printf("Client%d sent: %s", i,recv_buf);
+		printf("Client%d sent: %s\n", i,recv_buf);
 		bzero(send_buf, sizeof(send_buf));
 		//for some reason strcmp doesn't work 1st time now.
 		if (StartsWith(recv_buf, "write(")) {
@@ -277,12 +278,14 @@ void connection_accept(fd_set *master, int *fdmax, int sockfd, struct sockaddr_i
  * Output: None
  * Description:
  * 	Connection request.  Sets up the socket family, port, address.
- * 	The server initializes at 4950 everytime.
+ * 	The server attempts to connect to port 5000 and increments
+ * 	until it finds the first available port
  ----------------------------------------------------------------*/
-void connect_request(int *sockfd, struct sockaddr_in *my_addr)
+int connect_request(int *sockfd, struct sockaddr_in *my_addr)
 {
 	int yes = 1;
 	//mike stuff
+	int myport;
 	int portNew = PORT;
 	if ((*sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
 		perror("Socket");
@@ -299,13 +302,15 @@ void connect_request(int *sockfd, struct sockaddr_in *my_addr)
 		exit(1);
 	}
 
+	/*
 	if (bind(*sockfd, (struct sockaddr *)my_addr, sizeof(struct sockaddr)) == -1) {
 		perror("Unable to bind");
 		exit(1);
 	}
-	/*
+	 */
+	
 	// Server binds to first free port >=5000
-	int bindNum = bind(sockfd, (struct sockaddr *)&my_addr, sizeof(my_addr));
+	int bindNum = bind(*sockfd, (struct sockaddr *)my_addr, sizeof(struct sockaddr));
 	printf("Bind return value = %d \n", bindNum);
 	if (bindNum < 0)
 	{
@@ -315,21 +320,54 @@ void connect_request(int *sockfd, struct sockaddr_in *my_addr)
 			portNew = portNew + 1;
 			my_addr->sin_port = htons(portNew);
 			printf("Attempting to bind to port %d \n", portNew);
-			bindNum = bind(sockfd, (struct sockaddr *)&my_addr, sizeof(my_addr));
+			bindNum = bind(*sockfd, (struct sockaddr *)my_addr, sizeof(struct sockaddr));
 			printf("Bind return value = %d \n", bindNum);
 		}
 	}
 	if (bindNum < 0)
 		printf("Failed to find free port - maximum number of servers reached.\n");
 	else
-		printf("Successfully bound on port %d\n", portNew);
+	{
+		getsockname(*sockfd, (struct sockaddr *)&my_addr, (socklen_t *)sizeof(struct sockaddr));
+		myport = ntohs(my_addr->sin_port);
+		printf("Successfully bound on port %d\n", myport);
+	}
+	
+	/*
+	// Connect to other servers
+	if (myport > 5000)
+	{
+		char msgp[10];
+		sprintf(msgp, "%d", myport);
+		struct sockaddr_in server_addr;
+		
+		server_addr.sin_family = AF_INET;
+		server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+		for (int i = PORT; i < myport; i++)
+		{
+			server_addr.sin_port = htons(i);
+			if(connect(*sockfd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr)) == -1) {
+				perror("connect");
+			}
+			else {
+				send(*sockfd, msgp, BUFSIZE, 0);
+				close(*sockfd);
+			}
+		}
+		bind(*sockfd, (struct sockaddr *)my_addr, sizeof(struct sockaddr));
+	}
 	*/
+	
+	 
+	
 	if (listen(*sockfd, 10) == -1) {
 		perror("listen");
 		exit(1);
 	}
-	printf("\nTCPServer Waiting for client on port %d\n", PORT);
+	printf("\nTCPServer Waiting for client on port %d\n", myport);
 	fflush(stdout);
+	
+	return myport;
 }
 
 /*---------------------------------------------------------------
@@ -347,10 +385,11 @@ int main(void) {
 	int fdmax, i;
 	int sockfd= 0;
 	struct sockaddr_in my_addr, client_addr;
-
+	int myport;
+	
 	FD_ZERO(&master);
 	FD_ZERO(&read_fds);
-	connect_request(&sockfd, &my_addr);
+	myport = connect_request(&sockfd, &my_addr);
 	FD_SET(sockfd, &master);
 
 	fdmax = sockfd;
