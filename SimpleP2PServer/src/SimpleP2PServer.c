@@ -38,19 +38,32 @@
 
 //32 clients to a server.  We won't be simulating that much. I want casuality working
 //format for each row:
-// {Dependency_Letter/Port/Client, Key, Timestamp, Database ID}
+// {Dependency_Letter/Port/Client, Key, Value(String?!),Timestamp, Database ID}
+//may need a separate list for key and value
 int dependency_list[ROWS][COLUMNS] = { NULL };
 
+//2d array for key and value
+//key will match with row num so then you can grab the value
+//messages can be 32 char long
+char key_value[ROWS][32] = { NULL };
 
 void Addon_Dependency_List(int client_port)
 {
-	int serverpclientp=(PORT*100000000)+client_port; //format 5000XXXXX
+	char s1[10];
+	char s2[10];
+
+	sprintf(s1, "%d",PORT);
+	sprintf(s2, "%d",client_port);
+
+	strcat(s1,s2);
+	int serverpclientp=atoi(s1); //format 5000XXXXX
+
 	for(int i=0;i<ROWS;i++)
 	{
 		if(dependency_list[i][0] == NULL){
 			dependency_list[i][0]=serverpclientp;
-			printf("row %d contents: %d\n", i, dependency_list[i][0]);
-			printf("row %d contents: %d", i+1, dependency_list[i+1][0]);
+			//printf("row %d contents: %d\n", i, dependency_list[i][0]);
+			//printf("row %d contents: %d\n", i+1, dependency_list[i+1][0]);
 			break;
 		}
 	}
@@ -71,35 +84,6 @@ void sleepRandomTime(){
 }
 
 /*---------------------------------------------------------------
- * Function: findSize
- * Input: char filename[]
- * Output: long int (file size in bytes)
- * Description:
- * 	Looks at the file in the FILES directory (files hosted on
- * 	the server and various "sharing" peers) and determines the
- * 	length of the file.
- ----------------------------------------------------------------*/
-long int findSize(char file_name[])
-{
-    // opening the file in read mode
-    FILE* fp = fopen(file_name, "r");
-
-    // checking if the file exist or not
-    if (fp == NULL) {
-        printf("File Not Found!\n");
-        return -1;
-    }
-    //look at the end
-    fseek(fp, 0L, SEEK_END);
-    // calculating the size of the file
-    long int res = ftell(fp);
-    // closing the file
-    fclose(fp);
-
-    return res;
-}
-
-/*---------------------------------------------------------------
  * Function: StartsWith
  * Input: const char *a, const char *b
  * Output: int (acting as a boolean)
@@ -114,168 +98,6 @@ int StartsWith(const char *a, const char *b)
 {
    if(strncmp(a, b, strlen(b)) == 0) return 1;
    return 0;
-}
-
-/*---------------------------------------------------------------
- * Function: checkAvailableEndpoints
- * Input: int i (socket id), char *recv_buf
- * Output: None
- * Description:
- * 	scan each I_IP_PORT.txt file for the input filename,
- * 	if it's a match, display file name (bc it will have IP and Port
- * 	in it, then all the chunks in the file you as the requestor
- * 	can request
- ----------------------------------------------------------------*/
-void checkAvailableEndpoints(int i, char *recv_buf){
-
-	//is the request valid? scan each file, if the line isn't there
-	//-failure
-	struct dirent *de;  // Pointer for directory entry
-	char begin[3];
-	uint16_t endpoint_count=0;
-
-	//for file stuff
-	FILE * fp;
-	char * line = NULL;
-	size_t len = 0;
-	ssize_t read;
-
-	//get the file name from receive buf, put into some char array
-	char filename[256];
-	char request_info[35] = "Format=S_IPADDR_PORT.txt\nEndpoint: ";
-	char delim[]=" ";
-	int string_piece=0;
-
-    char *ptr = strtok(recv_buf,delim);
-
-	while(ptr != NULL){
-		if(string_piece==1){
-			strcpy(filename,ptr);
-		}
-		//printf("%s\n",ptr);
-		ptr=strtok(NULL,delim);
-		string_piece++;
-	}
-	//filename will be able to be searched in the files on the server
-
-	//begin will contain the socket number for comparison later
-	sprintf(begin, "%d",i);
-	// opendir() returns a pointer of DIR type.
-	DIR *dr = opendir(".");
-	if (dr == NULL)  // opendir returns NULL if couldn't open directory
-	{
-		printf("Could not open current directory" );
-	}
-    send(i,request_info,strlen(request_info),0);
-    //search project directory for a socket num beginning
-	//since rejoining gives you a new Port and Socket number
-	//TODO modify for more peers
-	while ((de = readdir(dr)) != NULL) {
-			//TODO these checks are to specific and limiting, but
-			//I want to see the information get back to the peer
-			//requesting endpoints
-			if(de->d_name[0]==begin[0]){
-				//do nothing (because this is the same peer
-			}else if (de->d_name[1]=='_'){
-				//read file line by line
-				  fp = fopen(de->d_name, "r");
-				  if (fp == NULL)
-				      exit(EXIT_FAILURE);
-				  while ((read = getline(&line, &len, fp)) != -1) {
-				      //printf("Retrieved line of length %zu:\n", read);
-				      //printf("%s", line);
-				      //if the line string is equal to FILENAME
-				      //Tell the peer the file format
-				      //tell them the IP and PORT (from file name)
-					  if(strcmp(line,filename)==0){
-					  //send Endpoints:
-				      //file name with socket IP PORT.txt
-				      send(i,de->d_name,strlen(de->d_name),0);
-				      //increase endpoint count
-				      endpoint_count++;
-					  }
-
-				  }
-				  fclose(fp);
-				  if (line)
-					  free(line);
-			}
-
-	}
-	//display endpoint count!
-	closedir(dr);
-	bzero(request_info,sizeof(request_info));
-	if(endpoint_count!=0){
-		sprintf(request_info,"\nTotal endpoints: %u\n",(unsigned int)endpoint_count);
-		send(i,request_info,strlen(request_info),0);
-	}else{
-		sprintf(request_info,"No endpoints...");
-		send(i,request_info,strlen(request_info),0);
-	}
-    bzero(request_info,sizeof(request_info));
-	memset(filename,0,strlen(filename));
-	memset(request_info,0,strlen(request_info));
-	//printf("placeholder");
-}
-
-/*---------------------------------------------------------------
- * Function: WriteFileShared
- * Input: int i,char *filename, int size
- * Output: None
- * Description:
- * 	Initialize registry filename, a file pointer, and
- * 	char array.  Calls findEndpointFile to get the right
- * 	socket file to write to, then opens that file,
- * 	writes the shared file and the size to S_IP_PORT.txt
- * 	file.  So it can be scanned for later for request FILE
- ----------------------------------------------------------------*/
-void WriteFileShared(int i,char *filename, int size){
-	//get IP and port from
-	//titled reg file
-	char regfilename[256];
-	FILE *file_pointer;
-	char str[64];
-
-	struct dirent *de;  // Pointer for directory entry
-	char begin[2];
-	sprintf(begin, "%d",i);
-	// opendir() returns a pointer of DIR type.
-	DIR *dr = opendir(".");
-	if (dr == NULL)  // opendir returns NULL if couldn't open directory
-	{
-		printf("Could not open current directory" );
-	}
-	//search project directory for a socket num beginning
-	//since rejoining gives you a new Port and Socket number
-	while ((de = readdir(dr)) != NULL) {
-			//printf("%s\n", de->d_name);
-			//TODO what about higher socket numbers?
-			if(de->d_name[0]==begin[0]){
-				//get the right txt file name
-				strcpy(regfilename,de->d_name);
-			}
-	}
-	closedir(dr);
-
-	file_pointer=fopen(regfilename,"a");
-	if(file_pointer == NULL)
-	{
-		printf("error opening file!\n");
-		goto fileclose;
-	}
-	//name of file in first line
-	fwrite(filename, sizeof(char),sizeof(filename)+1,file_pointer);
-	fwrite("\n",sizeof(char),1,file_pointer);
-	//put the size too on next line
-	sprintf(str, "%d",size);
-	fwrite(str, sizeof(char),sizeof(str),file_pointer);
-	fwrite("\n",sizeof(char),1,file_pointer);
-
-fileclose:
-	fclose(file_pointer);
-	memset(str,0,strlen(str));
-	memset(regfilename,0,strlen(regfilename));
-	//time to chunk on peer
 }
 
 /*---------------------------------------------------------------
@@ -308,129 +130,32 @@ void send_to_all(int j, int i, int sockfd, int nbytes_recvd, char *recv_buf, fd_
  * 	are also files that are located on some of the peers.  A decent
  * 	amount of string manipulation
  ----------------------------------------------------------------*/
-void ListingFiles(int i){
-	//dirent.h stuff
-	DIR *d;
-	struct dirent *dir;
-	d=opendir("./FILES");
-	char path[256];
-	char msg[16];
-	uint16_t file_count;
-	file_count = 0x0;
-	//res is length
-    long int res;
+void ListingDependencyList(int q){
+	char rowinfo[256];
+	char s1[256];
+	char s2=' ';
 
-	if (d)
-    {
-        while ((dir = readdir(d)) != NULL)
-        {
-			if (dir->d_name[0] != '.'){
-			int length = strlen(dir->d_name);
-			send(i,dir->d_name,length,0);
-			//findsize
-			//put file directory on there, then concatenate the filename
-			strcpy(path,"./FILES/");
-			strcat(path,dir->d_name);
-			res=findSize(path);
-			if (res != -1){
-			        sprintf(path,"-File size: %ld bytes \n", res);
-			        send(i,path,strlen(path),0);
+	for(int i=0;i<ROWS;i++)
+		{
+			//if it's null, it's empty past that point
+			if(dependency_list[i][0] == NULL){
+				break;
 			}
-    		file_count++;
-    		//clear array
-    		memset(path,0,strlen(path));
+			for(int j=0;j<COLUMNS;j++){
+				//send contents at location
+				sprintf(s1, "%d",dependency_list[i][j]);
+				strncat(s1,&s2,1);
+				//concatenate until done with the row then send
+				strcat(rowinfo,s1);
+				//clear for next one
+				memset(s1,0,sizeof(s1));
 			}
-			//bzero(dir->d_name, sizeof(dir->d_name));
-        }
-        closedir(d);
-    }
-	//note to self. Don't ever clear dir->d_name)!
-	//TODO file count could be more but would need modified
-	memset(msg,0,strlen(msg));
-	sprintf(msg,"File Count: %u\n",(unsigned int)file_count);
-	send(i,msg,strlen(msg),0);
-}
-
-/*---------------------------------------------------------------
- * Function: validateFileAndLength
- * Input: int i, char *recv_buf
- * Output: None
- * Description:
- * 	Similar to ListingFiles, but needs to check if these "share"
- * 	commands are valid and are on the server FILE list.  If it is
- * 	it will send the validated message back to the peer, then
- * 	write to a S_IP_PORT.txt file showing that this peer is sharing
- * 	the peer-entered file.
- ----------------------------------------------------------------*/
-void validateFileAndLength(int i, char *recv_buf){
-	//can only validate files on the server quickly this way
-	//add the socket to the registry file
-	DIR *d;
-	struct dirent *dir;
-	d=opendir("./FILES");
-	char path[256];
-	char filename[256];
-	char filesize[16];
-	int string_piece=0;
-	char delim[]=" ";
-	//filesize is length
-    long int res;
-
-    char *ptr = strtok(recv_buf,delim);
-
-	while(ptr != NULL){
-		if(string_piece==1){
-			strcpy(filename,ptr);
-		}else if(string_piece==2){
-			strcpy(filesize,ptr);
+			//send back to the client
+			int length=strlen(rowinfo);
+			send(q,rowinfo,length,0);
+			//clear all buffers for next round
+			memset(rowinfo,0,sizeof(rowinfo));
 		}
-		//printf("%s\n",ptr);
-		ptr=strtok(NULL,delim);
-		string_piece++;
-	}
-	//convert string to long int for res
-	char *addr;
-	long int ret;
-	ret = strtol(filesize, &addr,10);
-
-	memset(path,0,strlen(path));
-
-	if (d)
-    {
-        while ((dir = readdir(d)) != NULL)
-        {
-			if (dir->d_name[0] != '.'){
-				//compare filename
-				if(strcmp(filename,dir->d_name)==0){
-				strcpy(path,"./FILES/");
-				strcat(path,dir->d_name);
-				res=findSize(path);
-					if (res != -1){
-						//is the size right too?
-						if(ret==res){
-							sprintf(path,"File Registration Success\n",res);
-					        send(i,path,strlen(path),0);
-					        //on success, keep in S_IP_PORT.txt
-					        WriteFileShared(i,dir->d_name, res);
-					        //TODO send chunking request
-					        //edit file again with all available chunks on the working peer
-						}else{
-							sprintf(path,"File failure. Mismatch bytes.",res);
-							send(i,path,strlen(path),0);
-						}
-					}
-				}
-			}
-        }
-        closedir(d);
-		memset(filename,0,strlen(filename));
-		memset(filesize,0,strlen(filesize));
-		//if nothing happened...failure.
-		if(path[0]=='\0'){
-			sprintf(path,"Failure. File not on server\n",res);
-			send(i,path,strlen(path),0);
-    	}
-    }
 }
 
 /*---------------------------------------------------------------
@@ -492,13 +217,20 @@ void send_recv(int i, fd_set *master, int sockfd, int fdmax)
 		//for some reason strcmp doesn't work 1st time now.
 		if (StartsWith(recv_buf, "write(")) {
 			//write to the dependency array
-			ListingFiles(i);
+			//client write function
+
+			//replicated_write
 		}else if(StartsWith(recv_buf,"read(")) {
 			//read request from clients connected
-			checkAvailableEndpoints(i,recv_buf);
+			//client read function
+
+			//
+		}else if(StartsWith(recv_buf,"list\n")) {
+			//read request from clients connected
+			ListingDependencyList(i);
 		}else if(StartsWith(recv_buf,"replicated ")) {
 			//from the other servers
-			validateFileAndLength(i,recv_buf);
+			//validateFileAndLength(i,recv_buf);
 		}
 	}
 	//sends to all peers.  could be useful to show what's shared?
