@@ -103,6 +103,16 @@ void connect_request(int *sockfd, struct sockaddr_in *server_addr)
 		perror("connect");
 		exit(1);
 	}
+	
+	// Debugging code
+	//-------------------------------------------
+	struct sockaddr_in client_addr;
+	int cli_addr_size = sizeof(client_addr);
+	getsockname(*sockfd, (struct sockaddr *)&client_addr, (socklen_t *)&cli_addr_size );
+	printf("Port = %d\n", ntohs(client_addr.sin_port));
+	
+	//------------------------------------------
+	
 }
 
 /*---------------------------------------------------------------
@@ -120,7 +130,9 @@ int main()
 	fd_set master;
 	fd_set read_fds;
 	
-	connect_request(&sockfd, &server_addr);
+	connect_request(&sockfd, &server_addr);	
+	
+
 	FD_ZERO(&master);
         FD_ZERO(&read_fds);
         FD_SET(0, &master);
