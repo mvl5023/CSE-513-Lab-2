@@ -39,12 +39,10 @@ int StartsWith(const char *a, const char *b)
  * 	Core of the program, after connections are setup.  This
  * 	receives buffers from the peers to then check and find
  * 	out if files need:
- * 		Shared 		- enable sharing with other peers
- * 		Listed 		- list of shareable files
- * 		Requested 	- list of endpoints that are sharing specific
- * 					  files
- *		FileChunk	- download from another peer. 
- *		Leave		- leaves or exits the connection from the server
+ * 		list 		- list of keys on the dependency list of the server
+ * 		read	 	- reads the value from the key entered
+ *		write		- write to the server dependency list to be replicated to others. 
+ *		leave		- leaves or exits the connection from the server
  *
  ----------------------------------------------------------------*/	
 void send_recv(int i, int sockfd)
@@ -53,54 +51,30 @@ void send_recv(int i, int sockfd)
 	char send_buf[BUFSIZE];
 	char recv_buf[BUFSIZE];
 	int nbyte_recvd;
-	int filenum;
-	filenum = 0;
-begin:	
+
 	if (i == 0){
 		fgets(send_buf, BUFSIZE, stdin);
 		if (strcmp(send_buf , "help\n")==0){
 			printf("----------------------------------------------\n");
-			printf("Welcome to the help menu.\n");
-			printf("Here are the following commands: \n");
-			printf("filelist          -lists the downloadable files on the server\n");
-			printf("share #	  	  -shares the # amount of files(1-9) with server and/or peers\n");
-			printf("request FILENAME  -Asks the server for the file to transfer\n");
-			printf("filechunk SBBB	  -Request a filechunk from socket S. Include byte size to specify file\n"); 
+			printf("Welcome to the help menu. Connected to server at port: %d \n", PORT);
+			printf("Commands: \n");
+			printf("list		  -lists the dependency list on the server\n");
+			printf("read(key)	  -reads the value from the entered key\n");
+			printf("write(key,value)  -Asks the server for the file to transfer\n");
 			printf("leave             -promptly disconnects from the server\n");
+			printf("----------------------------------------------\n");
 		}else if (strcmp(send_buf , "leave\n") == 0) {
-			printf("Leaving Server file system...\n");
+			printf("Leaving Server...\n");
 			exit(0);
-		}else if(strcmp(send_buf , "filelist\n") == 0){
-			//send filelist command to the server to interpret
-			printf("----------------------------------------------\n");
+		}else if(strcmp(send_buf , "list\n") == 0){
+			//send list command to the server to interpret
+			printf("Dependency List from server at port: %d \n", PORT);
 			send(sockfd, send_buf,strlen(send_buf), 0);
-		}else if(StartsWith(send_buf,"share ")){
-			//send share and filename listed. must go to the server in the correct format
-			printf("----------------------------------------------\n");
-			printf("Share initiated.\n");
-			filenum = send_buf[6] - '0';
-			if(filenum<0||filenum>9){
-				printf("Too many files.  Exiting, type help for commands.\n");
-				goto begin;
-			}
-			printf("You have %d to share\n",filenum);
-			printf("NOTE: this must be in the client's directory.\n");
-			printf("Please format to be the complete filename then a space, then the size in bytes\n");
-			printf("Example: share dummy.txt 155\n");
-			bzero(send_buf,sizeof(send_buf));
-			for(int i=0; i<filenum;i++){
-				fgets(send_buf, BUFSIZE, stdin);
-				send(sockfd, send_buf,strlen(send_buf), 0);
-			}
-
-			printf("type help and press enter for the list of commands\n");
-		}else if(StartsWith(send_buf,"request ")){
-			printf("----------------------------------------------\n");
-			printf("File request initiated.\n");
+		}else if(StartsWith(send_buf,"read(")){
+			printf("Read started.\n");
 			send(sockfd, send_buf,strlen(send_buf), 0);
-		}else if(StartsWith(send_buf , "chunk ")){
-			printf("----------------------------------------------\n");
-			printf("File Chunk Request initiated.\n");
+		}else if(StartsWith(send_buf,"write(")){
+			printf("Write sent.\n");
 			send(sockfd, send_buf,strlen(send_buf), 0);
 		}else
 			send(sockfd, send_buf, strlen(send_buf), 0);
@@ -109,12 +83,6 @@ begin:
 		nbyte_recvd = recv(sockfd, recv_buf, BUFSIZE, 0);
 		recv_buf[nbyte_recvd] = ' ';
 		printf("%s\n" , recv_buf);
-		/*printf("Chunk requested."  recv_buf);
-		if(strcmp(recv_buf , "filechunk ") == 0){
-			//the peer has a request for a chunk then
-			printf("----------------------------------------------\n");
-			send(sockfd, send_buf,strlen(send_buf), 0);
-		}*/
 		fflush(stdout);
 		bzero(recv_buf, sizeof(recv_buf));
 	}
@@ -158,7 +126,7 @@ int main()
         FD_SET(0, &master);
         FD_SET(sockfd, &master);
 	fdmax = sockfd;
-	printf("type help and press enter for the list of commands\n");
+	printf("Type help and press enter for the list of possible commands\n");
 	while(1){
 		read_fds = master;
 		if(select(fdmax+1, &read_fds, NULL, NULL, NULL) == -1){

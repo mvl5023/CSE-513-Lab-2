@@ -25,6 +25,8 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <stdbool.h>
+//for random delays
+#include <time.h>
 
 // Servers assigned to port range 5000-9999
 // Clients assigned to port range 10000+
@@ -52,6 +54,20 @@ void Addon_Dependency_List(int client_port)
 			break;
 		}
 	}
+}
+
+/*---------------------------------------------------------------
+ * Function: sleepRandomTime
+ * Input: none
+ * Output: wait/delay time
+ * Description:
+ * 	Waits for 1 to 5 seconds
+ ----------------------------------------------------------------*/
+void sleepRandomTime(){
+	srand(time(NULL));
+	float duration = rand()%5+1;
+	sleep(duration);
+	//printf("duration: %f \n", duration);
 }
 
 /*---------------------------------------------------------------
