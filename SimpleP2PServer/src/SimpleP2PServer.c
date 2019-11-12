@@ -1,7 +1,7 @@
 /*
  ============================================================================
  Name        : SimpleP2PServer.c
- Author      : Joseph E. Tomasko, Jr.
+ Author      : Joseph E. Tomasko, Jr. & Michael Lipski
  Version     : 2.3.1
  Copyright   : Your copyright notice
  Description : The simple server and all the computing
@@ -35,6 +35,7 @@
 #define BUFSIZE 1024
 #define COLUMNS 4
 #define ROWS 32
+#define NSERVS 50
 
 //32 clients to a server.  We won't be simulating that much. I want casuality working
 //format for each row:
@@ -47,6 +48,90 @@ int dependency_list[ROWS][COLUMNS] = { NULL };
 //messages can be 32 char long
 char key_value[ROWS][32] = { NULL };
 
+int local_time=0;
+
+void clientWritingtoDependency(int client_port, char *recv_buf){
+	//attach current dependency_CLIENT
+	// 1. to replicated write
+	//		sending between servers needs developed
+
+	//2. Then update dependency_CLIENT list
+	//parse recv_buf for KEY
+	int client_key_int=0;
+	char client_key[5];
+
+	for(int i=0;i<5;i++){
+		client_key[i]=recv_buf[i+6];
+	}
+	client_key_int=atoi(client_key);
+	//make sure client key is an int
+	if(client_key_int!=0){
+		//find matching row
+		char s1[10];
+		char s2[10];
+		sprintf(s1, "%d",PORT);
+		sprintf(s2, "%d",client_port);
+		strcat(s1,s2);
+		int row_identifer=atoi(s1);
+		for(int i=0;i<ROWS;i++)
+		{
+			if(dependency_list[i][0] == row_identifer){
+				//add to the list the KEY, with Timestamp and DB_ID
+				dependency_list[i][1]=client_key_int;
+				// 3. update local server time
+				updateLocalTime();
+				dependency_list[i][2]=local_time;
+				//DB ID can be the server PORT since it will differ from server to server
+				dependency_list[i][3]=PORT;
+				break; //break for loop
+			}
+		}
+
+		//here we have to add the string value from recv buf to the string list
+		//FORMAT: "5000XXXXX string"
+		//TODO get this working
+		for(int q=0;q<ROWS;q++){
+			if(key_value==NULL){
+				//init the string with 5000XXXXX
+				for(int x=0;x<9;x++){
+					key_value[q][x]=s1[x];
+				}
+				//space between the two
+				key_value[q][10]=' ';
+				//grab the actual string to store after
+				for(int w=0;w<20;w++){
+					if(key_value[q][w]!=')'){
+						key_value[q][w+11]=recv_buf[w+12];
+					}
+				}
+			}
+		}//end for
+
+	}//end if key
+}
+
+//Anytime a replicated write is received another server
+void dependency_check(){
+	//satisfy
+
+	//commit to dependency list at key X
+
+	//update local time
+
+}
+
+void updateLocalTime(){
+	local_time++;
+}
+
+/*---------------------------------------------------------------
+ * Function: Addon_Dependency_List
+ * Input: int client_port
+ * Output: Nothing
+ * Description:
+ * Once a client joins, adds port of server and port of client to the global
+ * dependency list of the server
+ ----------------------------------------------------------------*/
 void Addon_Dependency_List(int client_port)
 {
 	char s1[10];
@@ -150,6 +235,7 @@ void ListingDependencyList(int q){
 				//clear for next one
 				memset(s1,0,sizeof(s1));
 			}
+			strcat(rowinfo,"\n");
 			//send back to the client
 			int length=strlen(rowinfo);
 			send(q,rowinfo,length,0);
@@ -178,13 +264,14 @@ void ListingDependencyList(int q){
  * 	differ as each peer joins or leaves.
  * 	TODO save old ports for those that have connected before?
  ----------------------------------------------------------------*/
-void send_recv(int i, fd_set *master, int sockfd, int fdmax)
+void send_recv(int i, fd_set *master, int sockfd, int fdmax, struct sockaddr_in *client_addr)
 {
 	int nbytes_recvd, j;
 	char recv_buf[BUFSIZE];
 	char send_buf[BUFSIZE];
 	struct dirent *de;  // Pointer for directory entry
 	char begin[2];
+	int client_port=ntohs(client_addr->sin_port);
 	//if someone disconnects
 	if ((nbytes_recvd = recv(i, recv_buf, BUFSIZE, 0)) <= 0) {
 		if (nbytes_recvd == 0) {
@@ -212,14 +299,22 @@ void send_recv(int i, fd_set *master, int sockfd, int fdmax)
 		close(i);
 		FD_CLR(i, master);
 	}else {
-		printf("Client%d sent: %s", i,recv_buf);
+		printf("Client at port %d sent: %s\n", client_port,recv_buf);
+		//getting the PORT to identify in other functions!
 		bzero(send_buf, sizeof(send_buf));
 		//for some reason strcmp doesn't work 1st time now.
 		if (StartsWith(recv_buf, "write(")) {
 			//write to the dependency array
 			//client write function
+			clientWritingtoDependency(client_port,recv_buf);
+
 
 			//replicated_write
+			//sleepRandomTime for each replicated write
+			/* for(SERVER PORTS){
+				sleepRandomTime();
+				replicated_write(SERVER PORT);
+			} */
 		}else if(StartsWith(recv_buf,"read(")) {
 			//read request from clients connected
 			//client read function
@@ -228,9 +323,9 @@ void send_recv(int i, fd_set *master, int sockfd, int fdmax)
 		}else if(StartsWith(recv_buf,"list\n")) {
 			//read request from clients connected
 			ListingDependencyList(i);
-		}else if(StartsWith(recv_buf,"replicated ")) {
+		}else if(StartsWith(recv_buf,"replicated_write(")) {
 			//from the other servers
-			//validateFileAndLength(i,recv_buf);
+			//dependency_check here
 		}
 	}
 	//sends to all peers.  could be useful to show what's shared?
@@ -277,12 +372,14 @@ void connection_accept(fd_set *master, int *fdmax, int sockfd, struct sockaddr_i
  * Output: None
  * Description:
  * 	Connection request.  Sets up the socket family, port, address.
- * 	The server initializes at 4950 everytime.
+ * 	The server attempts to connect to port 5000 and increments
+ * 	until it finds the first available port
  ----------------------------------------------------------------*/
-void connect_request(int *sockfd, struct sockaddr_in *my_addr)
+int connect_request(int *sockfd, struct sockaddr_in *my_addr)
 {
 	int yes = 1;
 	//mike stuff
+	int myport;
 	int portNew = PORT;
 	if ((*sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
 		perror("Socket");
@@ -299,13 +396,15 @@ void connect_request(int *sockfd, struct sockaddr_in *my_addr)
 		exit(1);
 	}
 
+	/*
 	if (bind(*sockfd, (struct sockaddr *)my_addr, sizeof(struct sockaddr)) == -1) {
 		perror("Unable to bind");
 		exit(1);
 	}
-	/*
+	 */
+
 	// Server binds to first free port >=5000
-	int bindNum = bind(sockfd, (struct sockaddr *)&my_addr, sizeof(my_addr));
+	int bindNum = bind(*sockfd, (struct sockaddr *)my_addr, sizeof(struct sockaddr));
 	printf("Bind return value = %d \n", bindNum);
 	if (bindNum < 0)
 	{
@@ -315,21 +414,54 @@ void connect_request(int *sockfd, struct sockaddr_in *my_addr)
 			portNew = portNew + 1;
 			my_addr->sin_port = htons(portNew);
 			printf("Attempting to bind to port %d \n", portNew);
-			bindNum = bind(sockfd, (struct sockaddr *)&my_addr, sizeof(my_addr));
+			bindNum = bind(*sockfd, (struct sockaddr *)my_addr, sizeof(struct sockaddr));
 			printf("Bind return value = %d \n", bindNum);
 		}
 	}
 	if (bindNum < 0)
 		printf("Failed to find free port - maximum number of servers reached.\n");
 	else
-		printf("Successfully bound on port %d\n", portNew);
+	{
+		getsockname(*sockfd, (struct sockaddr *)&my_addr, (socklen_t *)sizeof(struct sockaddr));
+		myport = ntohs(my_addr->sin_port);
+		printf("Successfully bound on port %d\n", myport);
+	}
+
+	/*
+	// Connect to other servers
+	if (myport > 5000)
+	{
+		char msgp[10];
+		sprintf(msgp, "%d", myport);
+		struct sockaddr_in server_addr;
+
+		server_addr.sin_family = AF_INET;
+		server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+		for (int i = PORT; i < myport; i++)
+		{
+			server_addr.sin_port = htons(i);
+			if(connect(*sockfd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr)) == -1) {
+				perror("connect");
+			}
+			else {
+				send(*sockfd, msgp, BUFSIZE, 0);
+				close(*sockfd);
+			}
+		}
+		bind(*sockfd, (struct sockaddr *)my_addr, sizeof(struct sockaddr));
+	}
 	*/
+
+
+
 	if (listen(*sockfd, 10) == -1) {
 		perror("listen");
 		exit(1);
 	}
-	printf("\nTCPServer Waiting for client on port %d\n", PORT);
+	printf("\nTCPServer Waiting for client on port %d\n", myport);
 	fflush(stdout);
+
+	return myport;
 }
 
 /*---------------------------------------------------------------
@@ -347,10 +479,11 @@ int main(void) {
 	int fdmax, i;
 	int sockfd= 0;
 	struct sockaddr_in my_addr, client_addr;
+	int myport;
 
 	FD_ZERO(&master);
 	FD_ZERO(&read_fds);
-	connect_request(&sockfd, &my_addr);
+	myport = connect_request(&sockfd, &my_addr);
 	FD_SET(sockfd, &master);
 
 	fdmax = sockfd;
@@ -366,10 +499,9 @@ int main(void) {
 				if (i == sockfd)
 					connection_accept(&master, &fdmax, sockfd, &client_addr);
 				else
-					send_recv(i, &master, sockfd, fdmax);
+					send_recv(i, &master, sockfd, fdmax, &client_addr);
 			}
 		}
 	}
 	return EXIT_SUCCESS;
 }
-
