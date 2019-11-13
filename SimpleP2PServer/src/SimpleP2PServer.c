@@ -48,6 +48,10 @@ int dependency_list[ROWS][COLUMNS] = { NULL };
 //messages can be 32 char long
 char key_value[ROWS][32]={NULL};
 
+int myport;
+int port_hi = PORT;
+int num_servers = 0;
+
 int local_time=0;
 
 void updateLocalTime(){
@@ -255,6 +259,57 @@ void ListingDependencyList(int q){
 }
 
 /*---------------------------------------------------------------
+ * Function: server2server
+ * Input: char* send_buf
+ * Output: None
+ * Description:
+ * 	Sends contents of send_buf to all other servers
+ ----------------------------------------------------------------*/
+void server2server(char *send_buf)
+{
+	int bindNum;
+	int yes = 1;
+	int resock[myport-PORT];
+	struct sockaddr_in my_addr;
+	struct sockaddr_in server_addr;
+	
+	my_addr.sin_family = AF_INET;
+	my_addr.sin_port = htons(myport);
+	my_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+	
+	server_addr.sin_family = AF_INET;
+	server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+	
+	// Iterate through all data center port assignments (not including self port)
+	for (int i = PORT; i < PORT+num_servers; i++)
+	{
+		if (i != myport){
+			int j = i - PORT;
+			if ((resock[j] = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+				perror("Socket");
+				exit(1);
+			}
+		
+			if (setsockopt(resock[j], SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
+				perror("setsockopt");
+				exit(1);
+			}
+				
+			server_addr.sin_port = htons(i);
+			bindNum = bind(resock[j], (struct sockaddr *)&my_addr, sizeof(struct sockaddr));
+			sleepRandomTime();						// add random delay
+			if(connect(resock[j], (struct sockaddr *)&server_addr, sizeof(struct sockaddr)) == -1) {
+				perror("connect");
+			}
+			else {
+				send(resock[j], send_buf, BUFSIZE, 0);
+				close(resock[j]);
+			}
+		}
+	}
+}
+
+/*---------------------------------------------------------------
  * Function: send_recv
  * Input: int i, fd_set *master, int sockfd, int fdmax
  * Output: None
@@ -307,10 +362,7 @@ void send_recv(int i, fd_set *master, int sockfd, int fdmax, struct sockaddr_in 
 
 			//replicated_write
 			//sleepRandomTime for each replicated write
-			/* for(SERVER PORTS){
-				sleepRandomTime();
-				replicated_write(SERVER PORT);
-			} */
+			server2server(send_buf);
 		}else if(StartsWith(recv_buf,"read(")) {
 			//read request from clients connected
 			//client read function
@@ -356,8 +408,16 @@ void connection_accept(fd_set *master, int *fdmax, int sockfd, struct sockaddr_i
 			*fdmax = newsockfd;
 		}
 		printf("new connection from %s on port %d \n",inet_ntoa(client_addr->sin_addr), ntohs(client_addr->sin_port));
-		//create a dependency list.  Send port number since IP is the same for all.
-		Addon_Dependency_List(ntohs(client_addr->sin_port));
+		if(ntohs(client_addr->sin_port) >= 10000){
+			//create a dependency list.  Send port number since IP is the same for all.
+			Addon_Dependency_List(ntohs(client_addr->sin_port));
+		}
+		else {
+			if (ntohs(client_addr->sin_port) > port_hi)
+				port_hi = ntohs(client_addr->sin_port);
+				num_servers = port_hi - PORT + 1;
+			printf("%d servers active.\n", num_servers);
+		}
 		//snprintf(newfile, sizeof(newfile), "%d_%s_%d.txt", newsockfd,inet_ntoa(client_addr->sin_addr),ntohs(client_addr->sin_port));
 	}
 }
@@ -371,11 +431,10 @@ void connection_accept(fd_set *master, int *fdmax, int sockfd, struct sockaddr_i
  * 	The server attempts to connect to port 5000 and increments
  * 	until it finds the first available port
  ----------------------------------------------------------------*/
-int connect_request(int *sockfd, struct sockaddr_in *my_addr)
+void connect_request(int *sockfd, struct sockaddr_in *my_addr)
 {
 	int yes = 1;
 	//mike stuff
-	int myport;
 	int portNew = PORT;
 	if ((*sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
 		perror("Socket");
@@ -391,14 +450,7 @@ int connect_request(int *sockfd, struct sockaddr_in *my_addr)
 		perror("setsockopt");
 		exit(1);
 	}
-
-	/*
-	if (bind(*sockfd, (struct sockaddr *)my_addr, sizeof(struct sockaddr)) == -1) {
-		perror("Unable to bind");
-		exit(1);
-	}
-	 */
-
+	
 	// Server binds to first free port >=5000
 	int bindNum = bind(*sockfd, (struct sockaddr *)my_addr, sizeof(struct sockaddr));
 	printf("Bind return value = %d \n", bindNum);
@@ -421,9 +473,9 @@ int connect_request(int *sockfd, struct sockaddr_in *my_addr)
 		getsockname(*sockfd, (struct sockaddr *)&my_addr, (socklen_t *)sizeof(struct sockaddr));
 		myport = ntohs(my_addr->sin_port);
 		printf("Successfully bound on port %d\n", myport);
+		num_servers = myport + 1 - PORT;
 	}
 
-	
 	// Connect to other servers
 	if (myport > 5000)
 	{
@@ -461,14 +513,19 @@ int connect_request(int *sockfd, struct sockaddr_in *my_addr)
 		}
 	}
 	
+	/*
+	//sleep(5);
+	char tester[20];
+	sprintf(tester, "server2server test");
+	server2server(tester);
+	*/ 
+	
 	if (listen(*sockfd, 10) == -1) {
 		perror("listen");
 		exit(1);
 	}
 	printf("\nTCPServer Waiting for client on port %d\n", myport);
 	fflush(stdout);
-
-	return myport;
 }
 
 /*---------------------------------------------------------------
@@ -486,11 +543,10 @@ int main(void) {
 	int fdmax, i;
 	int sockfd= 0;
 	struct sockaddr_in my_addr, client_addr;
-	int myport;
 
 	FD_ZERO(&master);
 	FD_ZERO(&read_fds);
-	myport = connect_request(&sockfd, &my_addr);
+	connect_request(&sockfd, &my_addr);
 	FD_SET(sockfd, &master);
 
 	fdmax = sockfd;
