@@ -46,7 +46,7 @@ int dependency_list[ROWS][COLUMNS] = { NULL };
 //2d array for key and value
 //key will match with row num so then you can grab the value
 //messages can be 32 char long
-char key_value[ROWS][32] = { NULL };
+char key_value[ROWS][32]={NULL};
 
 int local_time=0;
 
@@ -59,7 +59,7 @@ void clientWritingtoDependency(int client_port, char *recv_buf){
 	//parse recv_buf for KEY
 	int client_key_int=0;
 	char client_key[5];
-
+	char themessage[22];
 	for(int i=0;i<5;i++){
 		client_key[i]=recv_buf[i+6];
 	}
@@ -89,25 +89,33 @@ void clientWritingtoDependency(int client_port, char *recv_buf){
 
 		//here we have to add the string value from recv buf to the string list
 		//FORMAT: "5000XXXXX string"
-		//TODO get this working
 		for(int q=0;q<ROWS;q++){
-			if(key_value==NULL){
-				//init the string with 5000XXXXX
-				for(int x=0;x<9;x++){
-					key_value[q][x]=s1[x];
+			if(key_value[q][0]==NULL){
+				//init the string with KEY to the beginning
+				//grab the actual string to store
+				for(int w=0;w<32;w++){
+					if(recv_buf[w+6]!=')'){
+						key_value[q][w]=recv_buf[w+6];
+					}else
+						goto end;
 				}
-				//space between the two
-				key_value[q][10]=' ';
-				//grab the actual string to store after
-				for(int w=0;w<20;w++){
-					if(key_value[q][w]!=')'){
-						key_value[q][w+11]=recv_buf[w+12];
-					}
+
+			}else if(key_value[q][0]==recv_buf[6] && key_value[q][1]==recv_buf[7]
+			 && key_value[q][2]==recv_buf[8] && key_value[q][3]==recv_buf[9] && key_value[q][4]==recv_buf[10]){
+				//if it matches, clear the slot with the new message
+				memset(key_value[q],0,strlen(key_value[q]));
+				//new message
+				for(int w=0;w<32;w++){
+					if(recv_buf[w+6]!=')'){
+						key_value[q][w]=recv_buf[w+6];
+					}else
+						goto end;
 				}
 			}
 		}//end for
-
 	}//end if key
+end:
+	printf("Done with write.\n");
 }
 
 //Anytime a replicated write is received another server

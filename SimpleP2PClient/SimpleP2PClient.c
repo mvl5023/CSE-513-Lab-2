@@ -116,6 +116,7 @@
 	
 	}
 	
+<<<<<<< HEAD
 	/*---------------------------------------------------------------
 	* Function: main
 	* Input:
@@ -126,14 +127,43 @@
 	----------------------------------------------------------------*/
 	int main()
 	{
+=======
+	// Debugging code
+	//-------------------------------------------
+	struct sockaddr_in client_addr;
+	int cli_addr_size = sizeof(client_addr);
+	getsockname(*sockfd, (struct sockaddr *)&client_addr, (socklen_t *)&cli_addr_size );
+	printf("Port = %d\n", ntohs(client_addr.sin_port));
+	
+	//------------------------------------------
+	
+}
+
+/*---------------------------------------------------------------
+ * Function: main
+ * Input: 
+ * Output: 
+ * Description:
+ * 	Sends a connect request to the server, then from there
+ *	your connected.  Then go to send and receive.
+ ----------------------------------------------------------------*/
+int main()
+{
+>>>>>>> bf0f09e50da25e7935aa14ffa170eaf8d216335b
 	int sockfd, fdmax, i;
 	struct sockaddr_in server_addr;
 	fd_set master;
 	fd_set read_fds;
 	
+<<<<<<< HEAD
 	connect_request(&sockfd, &server_addr);
 	
 	
+=======
+	connect_request(&sockfd, &server_addr);	
+	
+
+>>>>>>> bf0f09e50da25e7935aa14ffa170eaf8d216335b
 	FD_ZERO(&master);
 	FD_ZERO(&read_fds);
 	FD_SET(0, &master);
