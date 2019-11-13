@@ -50,6 +50,10 @@ char key_value[ROWS][32]={NULL};
 
 int local_time=0;
 
+void updateLocalTime(){
+	local_time++;
+}
+
 void clientWritingtoDependency(int client_port, char *recv_buf){
 	//attach current dependency_CLIENT
 	// 1. to replicated write
@@ -128,9 +132,7 @@ void dependency_check(){
 
 }
 
-void updateLocalTime(){
-	local_time++;
-}
+
 
 /*---------------------------------------------------------------
  * Function: Addon_Dependency_List
@@ -215,8 +217,8 @@ void send_to_all(int j, int i, int sockfd, int nbytes_recvd, char *recv_buf, fd_
 }
 
 /*---------------------------------------------------------------
- * Function: ListingFiles
- * Input: int i
+ * Function: ListingDependencyList
+ * Input: int q
  * Output: None
  * Description:
  * 	Sends messages to requesting peer the files stored in FILES that
@@ -257,20 +259,6 @@ void ListingDependencyList(int q){
  * Input: int i, fd_set *master, int sockfd, int fdmax
  * Output: None
  * Description:
- * 	Core of the program, after connections are setup.  This
- * 	receives buffers from the peers to then check and find
- * 	out if files need:
- * 		Shared 		- enable sharing with other peers
- * 		Listed 		- list of shareable files
- * 		Requested 	- list of endpoints that are sharing specific
- * 					  files
- *		FileChunk	- download from another peer.
- *		Leave		- leaves or exits the connection from the server
- *
- * 	Also, if a socket disconnects or is lost, S_IP_PORT.txt is
- * 	deleted.  Reason being because the Ports and socket numbers
- * 	differ as each peer joins or leaves.
- * 	TODO save old ports for those that have connected before?
  ----------------------------------------------------------------*/
 void send_recv(int i, fd_set *master, int sockfd, int fdmax, struct sockaddr_in *client_addr)
 {
@@ -435,33 +423,44 @@ int connect_request(int *sockfd, struct sockaddr_in *my_addr)
 		printf("Successfully bound on port %d\n", myport);
 	}
 
-	/*
+	
 	// Connect to other servers
 	if (myport > 5000)
 	{
 		char msgp[10];
 		sprintf(msgp, "%d", myport);
+		int resock[myport-PORT];
 		struct sockaddr_in server_addr;
+		
 
 		server_addr.sin_family = AF_INET;
 		server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 		for (int i = PORT; i < myport; i++)
 		{
+			int j = i - PORT;
+			if ((resock[j] = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+				perror("Socket");
+				exit(1);
+			}
+		
+			if (setsockopt(resock[j], SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
+				perror("setsockopt");
+				exit(1);
+			}
+			
 			server_addr.sin_port = htons(i);
-			if(connect(*sockfd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr)) == -1) {
+			bindNum = bind(resock[j], (struct sockaddr *)my_addr, sizeof(struct sockaddr));
+			printf("bindNum= %d\n", bindNum);
+			if(connect(resock[j], (struct sockaddr *)&server_addr, sizeof(struct sockaddr)) == -1) {
 				perror("connect");
 			}
 			else {
-				send(*sockfd, msgp, BUFSIZE, 0);
-				close(*sockfd);
+				send(resock[j], msgp, BUFSIZE, 0);
+				close(resock[j]);
 			}
 		}
-		bind(*sockfd, (struct sockaddr *)my_addr, sizeof(struct sockaddr));
 	}
-	*/
-
-
-
+	
 	if (listen(*sockfd, 10) == -1) {
 		perror("listen");
 		exit(1);
