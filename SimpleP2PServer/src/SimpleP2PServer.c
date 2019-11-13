@@ -59,7 +59,7 @@ void clientWritingtoDependency(int client_port, char *recv_buf){
 	//parse recv_buf for KEY
 	int client_key_int=0;
 	char client_key[5];
-	char themessage[22];
+
 	for(int i=0;i<5;i++){
 		client_key[i]=recv_buf[i+6];
 	}
