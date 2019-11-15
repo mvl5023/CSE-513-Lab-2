@@ -58,16 +58,22 @@ int local_time=0;
 // Custom struct for queued replicated_writes
 struct record_entry {
 	int client;
+	int server;
 	int key;
 	int timestamp;
 	char value[32];
+};
+
+struct queue_entry {
+	record_entry rwrite;
+	std::vector<record_entry> deps;
 };
 
 // Tracking history of server operations
 std::vector<record_entry> server_record;
 
 // Repository of queued replicated_writes
-std::vector<record_entry> queued_writes;
+std::vector<queue_entry> queued_writes;
 
 void updateLocalTime(){
 	local_time++;
@@ -144,6 +150,7 @@ void clientWritingtoDependency(int client_port, char *recv_buf){
 end:
 	// create new server record entry
 	newentry.client = client_port;
+	newentry.server = myport;
 	newentry.key = client_key_int;
 	newentry.timestamp = local_time;
 	for (int jj = 0; jj < 32; jj++) {
@@ -157,6 +164,7 @@ end:
 	// update server record
 	server_record.insert(server_record.begin(), newentry);
 	
+	printf("Server record updated:\n");
 	printf("New entry client = %d\n", newentry.client);
 	printf("New entry key = %d\n", newentry.key);
 	printf("New entry timestamp = %d\n", newentry.timestamp);
@@ -165,13 +173,96 @@ end:
 	printf("Done with write.\n");
 }
 
-//Anytime a replicated write is received another server
-void dependency_check(){
-	//satisfy
+/*---------------------------------------------------------------
+ * Function: dependency_check
+ * Input: char recv_buf[BUFSIZE]
+ * Output: Nothing
+ * Description:
+ * Upon receipt of replicated_write from another server, do the
+ * following:
+ *  Process socket buffer to extract write plus dependency list; 
+ *  Perform dependency check on replicated_write;
+ *  Recheck queued messages for dependency resolution.
+ ----------------------------------------------------------------*/
+//Anytime a replicated write is received from another
+void dependency_check(char *recv_buf){
+	record_entry rep_write;
+	std::vector<record_entry> depends;
+	int is_met[depends.size()];
+	int sums = 0;
+	
+	//process socket buffer
+	
+	
+	printf("Received replicated_write from server %d\n", rep_write.server);
+	
+	//dependency check on replicated write
+	printf("Checking dependencies...\n");
+	for (int i = 0; i < depends.size(); i++) {		// outer loop: each element in rep_write dependency
+		is_met[i] = 0;
+		for (int j = 0; j < server_record.size(); j++){			// inner loop: check against server history
+			if ((depends[i].key == server_record[j].key) && (depends[i].server == server_record[j].server)) {
+				if (depends[i].timestamp == server_record[j].timestamp) {
+					is_met[i] = 1;
+					break;
+				}
+			}
+		}
+		sums += is_met[i];
+		if (is_met[i] == 0) {		// dependency not met ...
+			queue_entry queue_add;
+			queue_add.rwrite = rep_write;
+			queue_add.deps = depends;
+			queued_writes.push_back(queue_add);		// so queue replicated_write
+			printf("Dependencies not met, queueing replicated_write.\n");
+			break;
+		}
+	}
+	
+	// if dependencies are met, commit replicated_write to server history
+	if (sums == depends.size()) {
+		server_record.insert(server_record.begin(), rep_write);
+		printf("Dependencies met, committing replicated write.\n");
+		printf("Key = %d\n", rep_write.key);
+		printf("Value = %s\n", rep_write.value);
+		printf("Timestamp = %d\n", rep_write.timestamp);
+		updateLocalTime();
+	}
+	
+	// check queued writes for newly met dependencies
+	
+	printf("Checking queued writes...\n");
+	int rerun = 0;
+	while (rerun == 0) {
+		rerun = 0;
+		for (int i = 0; i < queued_writes.size(); i++) {		// outer loop: each queued write
+			queue_entry candidate = queued_writes[i];
+			sums = 0;
+			for (int j = 0; j < candidate.deps.size(); j++){			// inner loop: each dependency of a queued write
+				is_met[j] = 0;
+				for (int k = 0; k < server_record.size(); k++) {
+					if ((candidate.deps[j].key == server_record[k].key) && (candidate.deps[j].server == server_record[k].server)) {
+						if (candidate.deps[j].timestamp == server_record[k].timestamp) {
+							is_met[j] = 1;
+							break;
+						}
+					}
+				}
+				sums += is_met[j];
+			}
+			// all dependencies of queued write are met
+			if (sums == candidate.deps.size()) {
+				server_record.insert(server_record.begin(), queued_writes[i].rwrite);		// process queued write
+				printf("Queued write dependencies met; committing to server record.\n");
+				printf("Key = %d", queued_writes[i].rwrite.key);
+				printf("Value = %s", queued_writes[i].rwrite.value);
+				printf("Timestamp = %d", queued_writes[i].rwrite.timestamp);
 
-	//commit to dependency list at key X
-
-	//update local time
+				queued_writes.erase(queued_writes.begin() + i);				//remove replicated_write from queue
+				rerun = 1;
+			}
+		}
+	}
 
 }
 
@@ -471,7 +562,10 @@ void send_recv(int i, fd_set *master, int sockfd, int fdmax, struct sockaddr_in 
 			ListingDependencyList(i);
 		}else if(StartsWith(recv_buf,"replicated_write(")) {
 			//from the other servers
-			//dependency_check here
+			
+			//process replicated_writes and perform dependency checks
+			//dependency_check(recv_buf);
+			
 		}
 		else {
 			newport = atoi(recv_buf);
