@@ -339,13 +339,8 @@ void server2server(char *send_buf)
 	int bindNum;
 	int yes = 1;
 	int resock[myport-PORT];
-	struct sockaddr_in my_addr;
 	struct sockaddr_in server_addr;
-
-	my_addr.sin_family = AF_INET;
-	my_addr.sin_port = htons(myport);
-	my_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-
+	
 	server_addr.sin_family = AF_INET;
 	server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
@@ -358,14 +353,7 @@ void server2server(char *send_buf)
 				perror("Socket");
 				exit(1);
 			}
-
-			if (setsockopt(resock[j], SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
-				perror("setsockopt");
-				exit(1);
-			}
-
 			server_addr.sin_port = htons(i);
-			bindNum = bind(resock[j], (struct sockaddr *)&my_addr, sizeof(struct sockaddr));
 			sleepRandomTime();						// add random delay
 			if(connect(resock[j], (struct sockaddr *)&server_addr, sizeof(struct sockaddr)) == -1) {
 				perror("connect");
@@ -387,6 +375,7 @@ void server2server(char *send_buf)
 void send_recv(int i, fd_set *master, int sockfd, int fdmax, struct sockaddr_in *client_addr)
 {
 	int nbytes_recvd, j;
+	int newport;
 	char recv_buf[BUFSIZE];
 	char send_buf[BUFSIZE];
 	struct dirent *de;  // Pointer for directory entry
@@ -444,6 +433,13 @@ void send_recv(int i, fd_set *master, int sockfd, int fdmax, struct sockaddr_in 
 			//from the other servers
 			//dependency_check here
 		}
+		else {
+			newport = atoi(recv_buf);
+			if (newport > port_hi)
+				port_hi = newport;
+				num_servers = port_hi - PORT + 1;
+			printf("%d servers active.\n", num_servers);
+		}
 	}
 	//sends to all peers.  could be useful to show what's shared?
 	//for(j = 4; j <= fdmax; j++){
@@ -465,6 +461,7 @@ void connection_accept(fd_set *master, int *fdmax, int sockfd, struct sockaddr_i
 {
 	socklen_t addrlen;
 	int newsockfd;
+	char recv_buf[BUFSIZE];
 
 
 	addrlen = sizeof(struct sockaddr_in);
@@ -477,15 +474,12 @@ void connection_accept(fd_set *master, int *fdmax, int sockfd, struct sockaddr_i
 			*fdmax = newsockfd;
 		}
 		printf("new connection from %s on port %d \n",inet_ntoa(client_addr->sin_addr), ntohs(client_addr->sin_port));
-		if(ntohs(client_addr->sin_port) >= 10000){
+		if (recv(newsockfd, recv_buf, BUFSIZE, MSG_PEEK) <= 0) {
 			//create a dependency list.  Send port number since IP is the same for all.
 			Addon_Dependency_List(ntohs(client_addr->sin_port));
 		}
 		else {
-			if (ntohs(client_addr->sin_port) > port_hi)
-				port_hi = ntohs(client_addr->sin_port);
-				num_servers = port_hi - PORT + 1;
-			printf("%d servers active.\n", num_servers);
+			send_recv(newsockfd, master, sockfd, *fdmax, client_addr);
 		}
 		//snprintf(newfile, sizeof(newfile), "%d_%s_%d.txt", newsockfd,inet_ntoa(client_addr->sin_addr),ntohs(client_addr->sin_port));
 	}
@@ -563,14 +557,7 @@ void connect_request(int *sockfd, struct sockaddr_in *my_addr)
 				perror("Socket");
 				exit(1);
 			}
-
-			if (setsockopt(resock[j], SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
-				perror("setsockopt");
-				exit(1);
-			}
-
 			server_addr.sin_port = htons(i);
-			bindNum = bind(resock[j], (struct sockaddr *)my_addr, sizeof(struct sockaddr));
 			printf("bindNum= %d\n", bindNum);
 			if(connect(resock[j], (struct sockaddr *)&server_addr, sizeof(struct sockaddr)) == -1) {
 				perror("connect");
@@ -583,7 +570,7 @@ void connect_request(int *sockfd, struct sockaddr_in *my_addr)
 	}
 
 	/*
-	//sleep(5);
+	sleep(5);
 	char tester[20];
 	sprintf(tester, "server2server test");
 	server2server(tester);
