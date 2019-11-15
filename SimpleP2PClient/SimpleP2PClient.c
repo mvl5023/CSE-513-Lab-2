@@ -101,6 +101,9 @@ void connect_request(int *sockfd, struct sockaddr_in *server_addr)
 		perror("connect");
 		exit(1);
 	}
+	else {
+		printf("Connected to %d\n", PORT);
+	}
 }
 
 /*---------------------------------------------------------------

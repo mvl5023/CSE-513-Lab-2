@@ -109,7 +109,7 @@ void clientWritingtoDependency(int client_port, char *recv_buf){
 				//add to the list the KEY, with Timestamp and DB_ID
 				dependency_list[i][1]=client_key_int;
 				// 3. update local server time
-				updateLocalTime();
+				//updateLocalTime();
 				dependency_list[i][2]=local_time;
 				//DB ID can be the server PORT since it will differ from server to server
 				dependency_list[i][3]=myport;
@@ -180,9 +180,9 @@ end:
  * Description:
  * Upon receipt of replicated_write from another server, do the
  * following:
- *  Process socket buffer to extract write plus dependency list; 
- *  Perform dependency check on replicated_write;
- *  Recheck queued messages for dependency resolution.
+ * -Process socket buffer to extract write plus dependency list; 
+ * -Perform dependency check on replicated_write;
+ * -Recheck queued messages for dependency resolution.
  ----------------------------------------------------------------*/
 //Anytime a replicated write is received from another
 void dependency_check(char *recv_buf){
@@ -546,11 +546,14 @@ void send_recv(int i, fd_set *master, int sockfd, int fdmax, struct sockaddr_in 
 		if (StartsWith(recv_buf, "write(")) {
 			//write to the dependency array
 			//client write function
+			updateLocalTime();
 			clientWritingtoDependency(client_port,recv_buf);
-
-
-			//replicated_write
-			//sleepRandomTime for each replicated write
+			
+			// TODO : replicate write for other servers
+			// -translate write + attached dependencies to string, store to send_buf
+			
+			
+			// broadcast replicated_write to all other servers
 			server2server(send_buf);
 		}else if(StartsWith(recv_buf,"read(")) {
 			//read request from clients connected
@@ -660,7 +663,6 @@ void connect_request(int *sockfd, struct sockaddr_in *my_addr)
 			my_addr->sin_port = htons(portNew);
 			printf("Attempting to bind to port %d \n", portNew);
 			bindNum = bind(*sockfd, (struct sockaddr *)my_addr, sizeof(struct sockaddr));
-			printf("Bind return value = %d \n", bindNum);
 		}
 	}
 	if (bindNum < 0)
@@ -702,14 +704,7 @@ void connect_request(int *sockfd, struct sockaddr_in *my_addr)
 			}
 		}
 	}
-
-	/*
-	sleep(5);
-	char tester[20];
-	sprintf(tester, "server2server test");
-	server2server(tester);
-	*/
-
+	
 	if (listen(*sockfd, 10) == -1) {
 		perror("listen");
 		exit(1);
