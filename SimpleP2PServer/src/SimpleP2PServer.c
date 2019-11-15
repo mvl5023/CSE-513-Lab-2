@@ -25,6 +25,8 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <stdbool.h>
+#include <string>
+#include <vector>
 //for random delays
 #include <time.h>
 
@@ -48,10 +50,24 @@ int dependency_list[ROWS][COLUMNS] = { NULL };
 //messages can be 32 char long
 char key_value[ROWS][32]={NULL};
 
-int myport;
-int port_hi = PORT;
-int num_servers = 0;
+int myport;					// fixed port assignment for server, receiving
+int port_hi = PORT;			// largest value fixed server port
+int num_servers = 0;		// number of servers active
 int local_time=0;
+
+// Custom struct for queued replicated_writes
+struct record_entry {
+	int client;
+	int key;
+	int timestamp;
+	char value[32];
+};
+
+// Tracking history of server operations
+std::vector<record_entry> server_record;
+
+// Repository of queued replicated_writes
+std::vector<record_entry> queued_writes;
 
 void updateLocalTime(){
 	local_time++;
@@ -66,6 +82,7 @@ void clientWritingtoDependency(int client_port, char *recv_buf){
 	//parse recv_buf for KEY
 	int client_key_int=0;
 	char client_key[5];
+	record_entry newentry;		// updating server record
 
 	for(int i=0;i<5;i++){
 		client_key[i]=recv_buf[i+6];
@@ -120,8 +137,31 @@ void clientWritingtoDependency(int client_port, char *recv_buf){
 				}
 			}
 		}//end for
+		
+
+		
 	}//end if key
 end:
+	// create new server record entry
+	newentry.client = client_port;
+	newentry.key = client_key_int;
+	newentry.timestamp = local_time;
+	for (int jj = 0; jj < 32; jj++) {
+		if(recv_buf[jj+12]!=')'){
+			newentry.value[jj] = recv_buf[jj+12];
+		} else {
+			break;
+		}
+	}
+	
+	// update server record
+	server_record.insert(server_record.begin(), newentry);
+	
+	printf("New entry client = %d\n", newentry.client);
+	printf("New entry key = %d\n", newentry.key);
+	printf("New entry timestamp = %d\n", newentry.timestamp);
+	printf("New entry value = %s\n", newentry.value);
+	
 	printf("Done with write.\n");
 }
 
