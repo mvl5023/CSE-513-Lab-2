@@ -11,7 +11,7 @@
 	
 	// Servers assigned to Port range 5000-9999
 	// Clients assigned to port range 10000+ ??
-	#define PORT 5000	
+	#define PORT 5001	
 	#define BUFSIZE 1024
 	
 	/*---------------------------------------------------------------

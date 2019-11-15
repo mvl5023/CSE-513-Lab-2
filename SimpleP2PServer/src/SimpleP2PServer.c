@@ -51,7 +51,6 @@ char key_value[ROWS][32]={NULL};
 int myport;
 int port_hi = PORT;
 int num_servers = 0;
-
 int local_time=0;
 
 void updateLocalTime(){
@@ -77,7 +76,7 @@ void clientWritingtoDependency(int client_port, char *recv_buf){
 		//find matching row
 		char s1[10];
 		char s2[10];
-		sprintf(s1, "%d",PORT);
+		sprintf(s1, "%d",myport);
 		sprintf(s2, "%d",client_port);
 		strcat(s1,s2);
 		int row_identifer=atoi(s1);
@@ -90,7 +89,7 @@ void clientWritingtoDependency(int client_port, char *recv_buf){
 				updateLocalTime();
 				dependency_list[i][2]=local_time;
 				//DB ID can be the server PORT since it will differ from server to server
-				dependency_list[i][3]=PORT;
+				dependency_list[i][3]=myport;
 				break; //break for loop
 			}
 		}
@@ -258,6 +257,76 @@ void ListingDependencyList(int q){
 		}
 }
 
+void readingTheKey(int client_port, int q, char *recv_buf){
+	//here just send the message back to the client
+	char send_msg[256];
+	char receiving[6]={NULL};
+	char key_str[6]={NULL};
+
+	int read_msg_time=0;
+	int server_id=0;
+
+
+
+	for(int i=0;i<ROWS;i++){
+		//get the key!
+		for(int j=0;j<5;j++){
+				key_str[j]=key_value[i][j];
+				receiving[j]=recv_buf[j+5];
+		}
+
+		if(strcmp(receiving,key_str)==0){
+			//if the key matches, send to the client asking for it
+			strcpy(send_msg,key_value[i]);
+			send(q,send_msg,strlen(send_msg),0);
+			break;
+		} else if(key_value[i][0]==NULL){
+			//if empty, end of message list
+			sprintf(send_msg,"Not a valid key\n");
+			send(q,send_msg,strlen(send_msg),0);
+			break;
+		}
+	}
+
+	//then add to the dependency list after reading.
+	int client_key_int=atoi(key_str);
+	//scan dependency_list for first key match then get the time from there
+	for(int i=0;i<ROWS;i++){
+		if(dependency_list[i][1]==client_key_int){
+			read_msg_time=dependency_list[i][2];
+			server_id=dependency_list[i][3];
+		}
+	}
+
+	//make sure client key is an int
+	for(int i=0;i<ROWS;i++){
+		if(dependency_list[i][0] == NULL){
+			if(client_key_int!=0){
+						//find matching row
+				char s1[10];
+				char s2[10];
+				sprintf(s1, "%d",myport);
+				sprintf(s2, "%d",client_port);
+				strcat(s1,s2);
+				int row_identifer=atoi(s1);
+				//TODO this client_port is incorrect.
+				dependency_list[i][0]=row_identifer;
+				//add to the list the KEY, with Timestamp and DB_ID
+				dependency_list[i][1]=client_key_int;
+				//here it won't be local_time.  It'll be the message key's time
+				dependency_list[i][2]=read_msg_time;
+				//DB ID can be the server PORT since it will differ from server to server
+				dependency_list[i][3]=server_id; //may come from a different server
+				break; //break for loop
+			}
+		}
+	}
+	memset(send_msg,0,strlen(send_msg));
+	memset(receiving,0,strlen(receiving));
+	memset(key_str,0,strlen(key_str));
+}
+
+
 /*---------------------------------------------------------------
  * Function: server2server
  * Input: char* send_buf
@@ -272,14 +341,14 @@ void server2server(char *send_buf)
 	int resock[myport-PORT];
 	struct sockaddr_in my_addr;
 	struct sockaddr_in server_addr;
-	
+
 	my_addr.sin_family = AF_INET;
 	my_addr.sin_port = htons(myport);
 	my_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-	
+
 	server_addr.sin_family = AF_INET;
 	server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-	
+
 	// Iterate through all data center port assignments (not including self port)
 	for (int i = PORT; i < PORT+num_servers; i++)
 	{
@@ -289,12 +358,12 @@ void server2server(char *send_buf)
 				perror("Socket");
 				exit(1);
 			}
-		
+
 			if (setsockopt(resock[j], SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
 				perror("setsockopt");
 				exit(1);
 			}
-				
+
 			server_addr.sin_port = htons(i);
 			bindNum = bind(resock[j], (struct sockaddr *)&my_addr, sizeof(struct sockaddr));
 			sleepRandomTime();						// add random delay
@@ -366,7 +435,7 @@ void send_recv(int i, fd_set *master, int sockfd, int fdmax, struct sockaddr_in 
 		}else if(StartsWith(recv_buf,"read(")) {
 			//read request from clients connected
 			//client read function
-
+			readingTheKey(client_port,i,recv_buf);
 			//
 		}else if(StartsWith(recv_buf,"list\n")) {
 			//read request from clients connected
@@ -450,7 +519,7 @@ void connect_request(int *sockfd, struct sockaddr_in *my_addr)
 		perror("setsockopt");
 		exit(1);
 	}
-	
+
 	// Server binds to first free port >=5000
 	int bindNum = bind(*sockfd, (struct sockaddr *)my_addr, sizeof(struct sockaddr));
 	printf("Bind return value = %d \n", bindNum);
@@ -483,7 +552,7 @@ void connect_request(int *sockfd, struct sockaddr_in *my_addr)
 		sprintf(msgp, "%d", myport);
 		int resock[myport-PORT];
 		struct sockaddr_in server_addr;
-		
+
 
 		server_addr.sin_family = AF_INET;
 		server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
@@ -494,12 +563,12 @@ void connect_request(int *sockfd, struct sockaddr_in *my_addr)
 				perror("Socket");
 				exit(1);
 			}
-		
+
 			if (setsockopt(resock[j], SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
 				perror("setsockopt");
 				exit(1);
 			}
-			
+
 			server_addr.sin_port = htons(i);
 			bindNum = bind(resock[j], (struct sockaddr *)my_addr, sizeof(struct sockaddr));
 			printf("bindNum= %d\n", bindNum);
@@ -512,14 +581,14 @@ void connect_request(int *sockfd, struct sockaddr_in *my_addr)
 			}
 		}
 	}
-	
+
 	/*
 	//sleep(5);
 	char tester[20];
 	sprintf(tester, "server2server test");
 	server2server(tester);
-	*/ 
-	
+	*/
+
 	if (listen(*sockfd, 10) == -1) {
 		perror("listen");
 		exit(1);
