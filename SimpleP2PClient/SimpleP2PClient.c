@@ -85,7 +85,15 @@ void send_recv(int i, int sockfd)
 		bzero(recv_buf, sizeof(recv_buf));
 	}
 }
-	
+
+/*---------------------------------------------------------------
+* Function: connect_request
+* Input: int *sockfd, struct sockaddr_in *server_addr
+* Output: None
+* Description:
+* Connects to the server at the designated port if applicable
+* 
+----------------------------------------------------------------*/	
 void connect_request(int *sockfd, struct sockaddr_in *server_addr)
 {
 	if ((*sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
