@@ -27,8 +27,12 @@
 #include <stdbool.h>
 #include <string>
 #include <vector>
+#include <iostream>
+#include <set>
+#include <unordered_map>
 //for random delays
 #include <time.h>
+using namespace std;
 
 // Servers assigned to port range 5000-9999
 // Clients assigned to port range 10000+
@@ -64,23 +68,72 @@ struct record_entry {
 	char value[32];
 };
 
+unordered_map<int, vector<record_entry>> dependency_list2;
+
 // Custom struct for queued replicated_writes
 struct queue_entry {
 	record_entry rwrite;
-	std::vector<record_entry> deps;
+	vector<record_entry> deps;
 };
 
 // Tracking history of server operations
-std::vector<record_entry> server_record;
+vector<record_entry> server_record;
 
 // Repository of queued replicated_writes
-std::vector<queue_entry> queued_writes;
+vector<queue_entry> queued_writes;
+
+void server2server(char *);
 
 void updateLocalTime(){
 	local_time++;
 }
 
-void clientWritingtoDependency(int client_port, char *recv_buf){
+/*---------------------------------------------------------------
+ * Function: pack_send_buf
+ * Input: char *send_buf, irecord_entry newentry
+ * Output: None
+ * Description: Packs send buffer with replicated write and its 
+ *  attached dependencies
+ ----------------------------------------------------------------*/
+void pack_send_buf(char *send_buf, record_entry newentry) {
+	char s1[256];
+	vector<record_entry> deps = dependency_list2[newentry.client];
+	
+	memset(send_buf, 0, sizeof(send_buf));
+	
+	sprintf(s1, "replicated_write(");
+	strcat(send_buf, s1);
+	
+	// add current write to send buffer
+	sprintf(s1, "%d,", newentry.server);
+	strcat(send_buf, s1);
+	sprintf(s1, "%d,", newentry.client);
+	strcat(send_buf, s1);
+	sprintf(s1, "%d,", newentry.key);
+	strcat(send_buf, s1);
+	sprintf(s1, newentry.value);
+	strcat(send_buf, s1);
+	sprintf(s1, ",");
+	strcat(send_buf, s1);
+	sprintf(s1, "%d/", newentry.timestamp);
+	strcat(send_buf, s1);
+	
+	// iterate through client dependencies
+	for (int jj = 0; jj<deps.size(); jj++) {
+		sprintf(s1, "%d,", deps[1].key);
+		strcat(send_buf, s1);
+		sprintf(s1, "%d,", deps[1].timestamp);
+		strcat(send_buf, s1);
+		sprintf(s1, "%d/", deps[1].server);
+		strcat(send_buf, s1);
+		if (jj == deps.size()-1) {
+			sprintf(s1, "&");
+			strcat(send_buf, s1);
+		}
+	}	
+}
+
+void clientWritingtoDependency(int client_port, char *send_buf, char *recv_buf){
 	//attach current dependency_CLIENT
 	// 1. to replicated write
 	//		sending between servers needs developed
@@ -91,6 +144,40 @@ void clientWritingtoDependency(int client_port, char *recv_buf){
 	char client_key[5];
 	record_entry newentry;		// updating server record
 
+	// create new server record entry
+	newentry.client = client_port;
+	newentry.server = myport;
+	newentry.key = client_key_int;
+	newentry.timestamp = local_time;
+	for (int jj = 0; jj < 256; jj++) {
+		if(recv_buf[jj+13]!=')'){
+			newentry.value[jj] = recv_buf[jj+13];
+		} else {
+			break;
+		}
+	}
+	
+	// update server record
+	server_record.insert(server_record.begin(), newentry);
+	
+	printf("Server record updated:\n");
+	printf("New entry client = %d\n", newentry.client);
+	printf("New entry key = %d\n", newentry.key);
+	printf("New entry timestamp = %d\n", newentry.timestamp);
+	printf("New entry value = %s\n", newentry.value);
+	
+	printf("Done with local write.\n");
+	printf("Replicating write for other servers...\n");
+	
+	// prepare replicated_write for other servers
+	pack_send_buf(send_buf, newentry);
+	
+	// broadcast replicated_write to all other servers
+	server2server(send_buf);
+	
+	// clear dependency list
+	dependency_list2[client_port].clear();
+	
 	for(int i=0;i<5;i++){
 		client_key[i]=recv_buf[i+6];
 	}
@@ -145,33 +232,12 @@ void clientWritingtoDependency(int client_port, char *recv_buf){
 			}
 		}//end for
 		
-
+		// update dependency list, second form
+		dependency_list2[client_port].push_back(newentry);
 		
 	}//end if key
 end:
-	// create new server record entry
-	newentry.client = client_port;
-	newentry.server = myport;
-	newentry.key = client_key_int;
-	newentry.timestamp = local_time;
-	for (int jj = 0; jj < 256; jj++) {
-		if(recv_buf[jj+13]!=')'){
-			newentry.value[jj] = recv_buf[jj+13];
-		} else {
-			break;
-		}
-	}
-	
-	// update server record
-	server_record.insert(server_record.begin(), newentry);
-	
-	printf("Server record updated:\n");
-	printf("New entry client = %d\n", newentry.client);
-	printf("New entry key = %d\n", newentry.key);
-	printf("New entry timestamp = %d\n", newentry.timestamp);
-	printf("New entry value = %s\n", newentry.value);
-	
-	printf("Done with write.\n");
+	printf("Finished replicating write.\n");
 }
 
 /*---------------------------------------------------------------
@@ -187,12 +253,109 @@ end:
  ----------------------------------------------------------------*/
 void dependency_check(char *recv_buf){
 	record_entry rep_write;
-	std::vector<record_entry> depends;
+	vector<record_entry> depends;
 	int is_met[depends.size()];
 	int sums = 0;
+	char s1[256];
+	char delim1 = ',';
+	char delim2 = '/';
+	char delim3 = '&';
 	
 	//process socket buffer
+	int offset = 0;
+	// replicated write
+	for (int j = offset; j < BUFSIZE; j++) {		//server
+		if (recv_buf[j] != delim1) {
+			offset++;
+			break;
+		}
+		s1[j-offset] = recv_buf[j];
+		offset++;
+	}
+	rep_write.server = atoi(s1);
+	memset(s1,0,strlen(s1));
+	for (int j = offset; j < BUFSIZE; j++) {		//client
+		if (recv_buf[j] == delim1) {
+			offset++;
+			break;
+		}
+		s1[j-offset] = recv_buf[j];
+		offset++;
+	}
+	rep_write.client = atoi(s1);
+	memset(s1,0,strlen(s1));
+	for (int j = offset; j < BUFSIZE; j++) {		//key
+		if (recv_buf[j] == delim1) {
+			offset++;
+			break;
+		}
+		s1[j-offset] = recv_buf[j];
+		offset++;
+	}
+	rep_write.key = atoi(s1);
+	memset(s1,0,strlen(s1));
+	for (int j = offset; j < BUFSIZE; j++) {		//value
+		if (recv_buf[j] == delim1) {
+			offset++;
+			break;
+		}
+		s1[j-offset] = recv_buf[j];
+		offset++;
+	}
+	sprintf(rep_write.value, s1);
+	memset(s1,0,strlen(s1));
+	for (int j = offset; j < BUFSIZE; j++) {		//timestamp
+		if (recv_buf[j] == delim2) {
+			offset++;
+			break;
+		}
+		s1[j-offset] = recv_buf[j];
+		offset++;
+	}
+	rep_write.timestamp = atoi(s1);
+	memset(s1,0,strlen(s1));
 	
+	int marker = 1;
+	while (marker == 1) {
+		if (recv_buf[offset] == delim3) {	//end of buffer
+			marker = 0;
+			break;
+		}
+		
+		record_entry newdep;
+		
+		for (int j = offset; j < BUFSIZE; j++) {		//key
+			if (recv_buf[j] == delim1) {
+				offset++;
+				break;
+			}
+			s1[j-offset] = recv_buf[j];
+			offset++;
+		}
+		newdep.key = atoi(s1);
+		memset(s1,0,strlen(s1));
+		for (int j = offset; j < BUFSIZE; j++) {		//timestamp
+			if (recv_buf[j] == delim1) {
+				offset++;
+				break;
+			}
+			s1[j-offset] = recv_buf[j];
+			offset++;
+		}
+		newdep.timestamp = atoi(s1);
+		memset(s1,0,strlen(s1));
+		for (int j = offset; j < BUFSIZE; j++) {		//server
+			if (recv_buf[j] == delim1) {
+				offset++;
+				break;
+			}
+			s1[j-offset] = recv_buf[j];
+			offset++;
+		}
+		newdep.server = atoi(s1);
+		memset(s1,0,strlen(s1));
+		depends.push_back(newdep);
+	}
 	
 	printf("Received replicated_write from server %d\n", rep_write.server);
 	
@@ -281,7 +444,7 @@ void Addon_Dependency_List(int client_port)
 	char s1[10];
 	char s2[10];
 
-	sprintf(s1, "%d",PORT);
+	sprintf(s1, "%d",myport);
 	sprintf(s2, "%d",client_port);
 
 	strcat(s1,s2);
@@ -586,14 +749,12 @@ void send_recv(int i, fd_set *master, int sockfd, int fdmax, struct sockaddr_in 
 			//write to the dependency array
 			//client write function
 			updateLocalTime();
-			clientWritingtoDependency(client_port,recv_buf);
+			clientWritingtoDependency(client_port,send_buf, recv_buf);
 			
 			// TODO : replicate write for other servers
 			// -translate write + attached dependencies to string, store to send_buf
 			
 			
-			// broadcast replicated_write to all other servers
-			server2server(send_buf);
 		}else if(StartsWith(recv_buf,"read(")) {
 			//read request from clients connected
 			//client read function
@@ -606,7 +767,7 @@ void send_recv(int i, fd_set *master, int sockfd, int fdmax, struct sockaddr_in 
 			//from the other servers
 			
 			//process replicated_writes and perform dependency checks
-			//dependency_check(recv_buf);
+			dependency_check(recv_buf);
 			
 		}
 		else {
