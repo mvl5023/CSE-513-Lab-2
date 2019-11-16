@@ -55,7 +55,7 @@ int port_hi = PORT;			// largest value fixed server port
 int num_servers = 0;		// number of servers active
 int local_time=0;
 
-// Custom struct for queued replicated_writes
+// Custom struct for server history
 struct record_entry {
 	int client;
 	int server;
@@ -64,6 +64,7 @@ struct record_entry {
 	char value[32];
 };
 
+// Custom struct for queued replicated_writes
 struct queue_entry {
 	record_entry rwrite;
 	std::vector<record_entry> deps;
@@ -153,9 +154,9 @@ end:
 	newentry.server = myport;
 	newentry.key = client_key_int;
 	newentry.timestamp = local_time;
-	for (int jj = 0; jj < 32; jj++) {
-		if(recv_buf[jj+12]!=')'){
-			newentry.value[jj] = recv_buf[jj+12];
+	for (int jj = 0; jj < 256; jj++) {
+		if(recv_buf[jj+13]!=')'){
+			newentry.value[jj] = recv_buf[jj+13];
 		} else {
 			break;
 		}
@@ -184,7 +185,6 @@ end:
  * -Perform dependency check on replicated_write;
  * -Recheck queued messages for dependency resolution.
  ----------------------------------------------------------------*/
-//Anytime a replicated write is received from another
 void dependency_check(char *recv_buf){
 	record_entry rep_write;
 	std::vector<record_entry> depends;
@@ -396,6 +396,8 @@ void readingTheKey(int client_port, int q, char *recv_buf){
 
 	int read_msg_time=0;
 	int server_id=0;
+	
+	record_entry newentry;		// updating server record
 
 
 
@@ -455,6 +457,43 @@ void readingTheKey(int client_port, int q, char *recv_buf){
 	memset(send_msg,0,strlen(send_msg));
 	memset(receiving,0,strlen(receiving));
 	memset(key_str,0,strlen(key_str));
+	
+	// create new server record entry
+	newentry.client = client_port;
+	newentry.server = myport;
+	newentry.key = client_key_int;
+	newentry.timestamp = local_time;
+	
+	int maxtime = 0;
+	int maxindex = 0;
+	int present = 0;
+	for (int jj = 0; jj < server_record.size(); jj ++) {
+		if (newentry.key == server_record[jj].key) {
+			present = 1;
+			if (server_record[jj].timestamp > maxtime) {
+				maxtime = server_record[jj].timestamp;
+				maxindex = jj;
+			}
+		}
+	}
+	if (present == 1) {
+		for (int jj = 0; jj < strlen(server_record[maxindex].value); jj++){
+			newentry.value[jj] = server_record[maxindex].value[jj];
+		}
+		// update server record
+		server_record.insert(server_record.begin(), newentry);
+		
+		printf("Server record updated:\n");
+		printf("New entry client = %d\n", newentry.client);
+		printf("New entry key = %d\n", newentry.key);
+		printf("New entry timestamp = %d\n", newentry.timestamp);
+		printf("New entry value = %s\n", newentry.value);
+		
+		printf("Finished processing read.\n");
+	}
+	else {
+		printf("Key not found.\n");
+	}
 }
 
 
