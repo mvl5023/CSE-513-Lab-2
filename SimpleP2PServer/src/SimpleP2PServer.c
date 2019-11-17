@@ -393,12 +393,39 @@ void dependency_check(char *recv_buf){
 		printf("Value = %s\n", rep_write.value);
 		printf("Timestamp = %d\n", rep_write.timestamp);
 		updateLocalTime();
+
+		// write to local memory
+		char keycheck[32];
+		char write_value[256];
+		int write_key;
+		
+		
+		for(int q=0;q<ROWS;q++){
+			for(int i = 0; i < 5; i++) {
+				strcat(keycheck, key_value[q]);
+			}
+			write_key = atoi(keycheck);
+			if(rep_write.key == write_key){
+				//if it matches, clear the slot with the new message
+				memset(key_value[q],0,strlen(key_value[q]));
+				//new message
+				for(int w=0;w<256;w++){
+					sprintf(key_value[q], "%s", rep_write.value);
+				}
+			}
+		}//end for
+		
 	}
 	
 	// check queued writes for newly met dependencies
-	
-	printf("Checking queued writes...\n");
 	int rerun = 0;
+	printf("Checking queued messages...\n");
+	if (queued_writes.size() == 0) {
+		printf("No queued messages.\n");
+		rerun = 1;
+	}
+	
+	// if queued messages, iterate over queue
 	while (rerun == 0) {
 		rerun = 0;
 		for (int i = 0; i < queued_writes.size(); i++) {		// outer loop: each queued write
@@ -751,11 +778,6 @@ void send_recv(int i, fd_set *master, int sockfd, int fdmax, struct sockaddr_in 
 			//client write function
 			updateLocalTime();
 			clientWritingtoDependency(client_port,send_buf, recv_buf);
-			
-			// TODO : replicate write for other servers
-			// -translate write + attached dependencies to string, store to send_buf
-			
-			
 		}else if(StartsWith(recv_buf,"read(")) {
 			//read request from clients connected
 			//client read function
