@@ -65,7 +65,7 @@ struct record_entry {
 	int server;
 	int key;
 	int timestamp;
-	char value[32];
+	char value[256];
 };
 
 unordered_map<int, vector<record_entry>> dependency_list2;
@@ -126,11 +126,10 @@ void pack_send_buf(char *send_buf, record_entry newentry) {
 		strcat(send_buf, s1);
 		sprintf(s1, "%d/", deps[1].server);
 		strcat(send_buf, s1);
-		if (jj == deps.size()-1) {
-			sprintf(s1, "&");
-			strcat(send_buf, s1);
-		}
-	}	
+	}
+	sprintf(s1, "&");
+	strcat(send_buf, s1);
+	//printf("Packed send buffer: %s\n", send_buf);
 }
 
 void clientWritingtoDependency(int client_port, char *send_buf, char *recv_buf){
@@ -144,11 +143,18 @@ void clientWritingtoDependency(int client_port, char *send_buf, char *recv_buf){
 	char client_key[5];
 	record_entry newentry;		// updating server record
 
+	// extract client key
+	for(int i=0;i<5;i++){
+		client_key[i]=recv_buf[i+6];
+	}
+	client_key_int=atoi(client_key);
+	
 	// create new server record entry
 	newentry.client = client_port;
 	newentry.server = myport;
 	newentry.key = client_key_int;
 	newentry.timestamp = local_time;
+	memset(newentry.value, 0, sizeof(newentry.value));
 	for (int jj = 0; jj < 256; jj++) {
 		if(recv_buf[jj+13]!=')'){
 			newentry.value[jj] = recv_buf[jj+13];
@@ -178,10 +184,7 @@ void clientWritingtoDependency(int client_port, char *send_buf, char *recv_buf){
 	// clear dependency list
 	dependency_list2[client_port].clear();
 	
-	for(int i=0;i<5;i++){
-		client_key[i]=recv_buf[i+6];
-	}
-	client_key_int=atoi(client_key);
+
 	//make sure client key is an int
 	if(client_key_int!=0){
 		//find matching row
@@ -265,7 +268,7 @@ void dependency_check(char *recv_buf){
 	int offset = 0;
 	// replicated write
 	for (int j = offset; j < BUFSIZE; j++) {		//server
-		if (recv_buf[j] != delim1) {
+		if (recv_buf[j] == delim1) {
 			offset++;
 			break;
 		}
@@ -428,8 +431,6 @@ void dependency_check(char *recv_buf){
 	}
 
 }
-
-
 
 /*---------------------------------------------------------------
  * Function: Addon_Dependency_List
